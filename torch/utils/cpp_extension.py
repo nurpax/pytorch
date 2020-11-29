@@ -20,6 +20,7 @@ from .hipify.hipify_python import get_hip_file_path, GeneratedFileCleaner
 from typing import List, Optional
 
 from setuptools.command.build_ext import build_ext
+from pkg_resources import packaging
 
 
 IS_WINDOWS = sys.platform == 'win32'
@@ -1781,8 +1782,20 @@ def _write_ninja_file(path,
 
     if with_cuda:
         cuda_compile_rule = ['rule cuda_compile']
+        nvcc_gendeps = ''
+        # --generate-dependencies-with-compile was added in CUDA 10.2.
+        # Compilation will work on earlier CUDA versions but header file
+        # dependencies are not correctly computed.
+        required_cuda_version = packaging.version.parse('10.2')
+        if packaging.version.parse(torch.version.cuda) >= required_cuda_version:
+            cuda_compile_rule.append('  depfile = $out.d')
+            cuda_compile_rule.append('  deps = gcc')
+            # Note: non-system deps with nvcc are only supported
+            # on Linux so use --generate-dependencies-with-compile
+            # to make this work on Windows too.
+            nvcc_gendeps = '--generate-dependencies-with-compile --dependency-output $out.d'
         cuda_compile_rule.append(
-            '  command = $nvcc $cuda_cflags -c $in -o $out $cuda_post_cflags')
+            f'  command = $nvcc {nvcc_gendeps} $cuda_cflags -c $in -o $out $cuda_post_cflags')
 
     # Emit one build rule per source to enable incremental build.
     build = []
